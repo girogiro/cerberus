@@ -448,10 +448,21 @@ class TestValidator(TestBase):
         )
 
     def test_unknown_keys(self):
-        document = {"unknown1": True, "unknown2": "yes"}
-        schema = {'a_field': {'type': 'string'}}
-        v = Validator(allow_unknown=True)
-        self.assertSuccess(schema=schema, document=document, validator=v)
+        schema = {}
+
+        # test that unknown fields are allowed when allow_unknown is True.
+        v = Validator(allow_unknown=True, schema=schema)
+        self.assertSuccess({"unknown1": True, "unknown2": "yes"}, validator=v)
+
+        # test that unknown fields are allowed only if they meet the
+        # allow_unknown schema when provided.
+        v.allow_unknown = {'type': 'string'}
+        self.assertSuccess(document={'name': 'mark'}, validator=v)
+        self.assertFail({"name": 1}, validator=v)
+
+        # test that unknown fields are not allowed if allow_unknown is False
+        v.allow_unknown = False
+        self.assertFail({'name': 'mark'}, validator=v)
 
     def test_novalidate_noerrors(self):
         '''In v0.1.0 and below `self.errors` raised an exception if no
@@ -489,6 +500,34 @@ class TestValidator(TestBase):
         self.assertTrue(v.validate({'test_field': 'foobar', 'foo': 'bar',
                                     'bar': 'foo'}))
         self.assertFalse(v.validate({'test_field': 'foobar', 'foo': 'bar'}))
+
+    def test_dependencies_with_required_field(self):
+        schema = {
+            'test_field': {'required': True, 'dependencies': ['foo', 'bar']},
+            'foo': {'type': 'string'},
+            'bar': {'type': 'string'}
+        }
+        v = Validator(schema)
+
+        # False: all dependencies missing
+        self.assertFalse(v.validate({'test_field': 'foobar'}))
+
+        # False: one of dependencies missing
+        self.assertFalse(v.validate({'test_field': 'foobar', 'foo': 'bar'}))
+
+        # False: dependencies are validated and field is required
+        self.assertFalse(v.validate({'foo': 'bar', 'bar': 'foo'}))
+
+        # True: All dependencies are optional
+        # so do not check the field if dependencies do not exist
+        self.assertTrue(v.validate({}))
+
+        # True: dependency missing
+        self.assertTrue(v.validate({'foo': 'bar'}))
+
+        # True: dependencies are validated but field is not required
+        schema['test_field']['required'] = False
+        self.assertTrue(v.validate({'foo': 'bar', 'bar': 'foo'}))
 
     def test_options_passed_to_nested_validators(self):
         schema = {'sub_dict': {'type': 'dict',
@@ -528,3 +567,19 @@ class TestValidator(TestBase):
 
         obj = {'sub': [{'foo': 'bar'}, {'foo': 'baz'}]}
         self.assertTrue(v.validate(obj))
+
+    def test_validator_rule(self):
+        def validate_name(field, value, error):
+            if not value.islower():
+                error(field, 'must be lowercase')
+
+        schema = {
+            'name': {'validator': validate_name},
+            'age': {'type': 'integer'}
+        }
+        v = Validator(schema)
+
+        self.assertFail({'name': 'ItsMe', 'age': 2}, validator=v)
+        self.assertError('name', 'must be lowercase', validator=v)
+
+        self.assertSuccess({'name': 'itsme', 'age': 2}, validator=v)

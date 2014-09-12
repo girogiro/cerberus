@@ -3,13 +3,21 @@ Cerberus Changelog
 
 Here you can see the full list of changes between each Cerberus release.
 
-Version 0.7.3
--------------
+Version 0.8
+-----------
 
 Not released yet.
 
-- [CI] Add travis_retry to pip install in case of network issues (Helgi
-  Þormar Þorbjörnsson #49)
+- 'allow_unknown' can also be set to a validation schema, in which case unknown
+  fields will be validated against it. Closes nicolaiarocci/eve#405.
+- New function-based custom validation mode (Luo Peng).
+- Fields with empty definitions in schema were reported as non-existent. Now
+  they are considered as valid, whatever their value is (Jaroslav Semančík).
+- If dependencies are precised for a 'required' field, then the presence of the
+  field is only validated if all dependencies are present (Trong Hieu HA).
+- Documentation typo (Nikita Vlaznev #55).
+- [CI] Add travis_retry to pip install in case of network issues (Helgi Þormar
+  Þorbjörnsson #49)
 
 Version 0.7.2
 -------------

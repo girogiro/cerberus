@@ -57,6 +57,10 @@ class Validator(object):
                           pass. Defaults to ``False``, returning an 'unknown
                           field error' un validation.
 
+    .. versionadded: 0.8
+      'allow_unknown' can be a schema used to validate unknown fields.
+       Support for function-based validation mode.
+
     .. versionchanged:: 0.7.2
        Successfully validate int as a float type.
 
@@ -215,7 +219,19 @@ class Validator(object):
                     if validator:
                         validator(definition[rule], field, value)
             else:
-                if not self.allow_unknown:
+                if self.allow_unknown:
+                    if isinstance(self.allow_unknown, Mapping):
+                        # validate that unknown fields matches the schema
+                        # for unknown_fields
+                        unknown_validator = Validator({field:
+                                                       self.allow_unknown})
+                        if not unknown_validator.validate({field: value}):
+                            self._error(field, unknown_validator.errors[field])
+                    else:
+                        # allow uknown field to pass without any kind of
+                        # validation
+                        pass
+                else:
                     self._error(field, errors.ERROR_UNKNOWN_FIELD)
 
         if not self.update:
@@ -279,13 +295,25 @@ class Validator(object):
                                 constraint, field))
 
     def _validate_required_fields(self, document):
+        """ Validates that required fields are not missing. If dependencies
+        are precised then validate 'required' only if all dependencies
+        are validated.
+
+        :param document: the document being validated.
+        """
         required = list(field for field, definition in self.schema.items()
                         if definition.get('required') is True)
         missing = set(required) - set(key for key in document.keys()
                                       if document.get(key) is not None
                                       or not self.ignore_none_values)
+
         for field in missing:
-            self._error(field, errors.ERROR_REQUIRED_FIELD)
+            dependencies = self.schema[field].get('dependencies')
+            dependencies_validated = self._validate_dependencies(
+                document, dependencies, field, break_on_error=True)
+
+            if dependencies_validated:
+                self._error(field, errors.ERROR_REQUIRED_FIELD)
 
     def _validate_readonly(self, read_only, field, value):
         if read_only:
@@ -428,7 +456,8 @@ class Validator(object):
             for field, error in validator.errors.items():
                 self._error(field, error)
 
-    def _validate_dependencies(self, document, dependencies, field):
+    def _validate_dependencies(self, document, dependencies, field,
+                               break_on_error=False):
         # handle cases where dependencies is a string or list of strings
         if isinstance(dependencies, _str_type):
             dependencies = [dependencies]
@@ -436,5 +465,13 @@ class Validator(object):
         if isinstance(dependencies, Sequence):
             for dependency in dependencies:
                 if dependency not in document:
-                    self._error(field, errors.ERROR_DEPENDENCIES_FIELD %
-                                dependency)
+                    if not break_on_error:
+                        self._error(field, errors.ERROR_DEPENDENCIES_FIELD %
+                                    dependency)
+                    else:
+                        return False
+        return True
+
+    def _validate_validator(self, validator, field, value):
+        # call customized validator function
+        validator(field, value, self._error)
